@@ -1,13 +1,14 @@
 mod config;
 mod os_integration;
 mod terminal;
+mod theme;
 mod ui;
 
 use config::Config;
 use os_integration::OsIntegration;
 use std::env;
 use std::path::PathBuf;
-use terminal::launch_in_terminal;
+use terminal::launch_rule;
 use ui::wizard_view::WizardState;
 use ui::AppState;
 
@@ -111,21 +112,19 @@ fn main() -> eframe::Result {
 
         // Check if there is a matching rule
         if let Some(rule) = config.find_matching_rule(&resolved_file) {
-            // MATCH FOUND: Stay in background! Launch terminal immediately and exit.
-            match launch_in_terminal(
+            // MATCH FOUND: Stay in background! Launch immediately and exit.
+            match launch_rule(
+                rule,
+                &resolved_file,
                 &config.preferred_terminal,
                 &config.custom_terminal_template,
-                &rule.command,
-                &resolved_file,
-                rule.hold_open,
-                &rule.working_dir,
             ) {
                 Ok(_) => {
                     // Success! Process spawned detached, exit cleanly and instantly.
                     std::process::exit(0);
                 }
                 Err(e) => {
-                    eprintln!("Error launching terminal for rule '{}': {}", rule.name, e);
+                    eprintln!("Error executing rule '{}': {}", rule.name, e);
                     // Fall through to show GUI wizard so the user can diagnose or adjust
                 }
             }
@@ -139,7 +138,7 @@ fn main() -> eframe::Result {
             viewport: eframe::egui::ViewportBuilder::default()
                 .with_title("Clintegrator - New Filetype Detected")
                 .with_inner_size([720.0, 540.0])
-                .with_min_inner_size([500.0, 400.0]),
+                .with_min_inner_size([380.0, 320.0]),
             ..Default::default()
         };
 
@@ -156,7 +155,7 @@ fn main() -> eframe::Result {
         viewport: eframe::egui::ViewportBuilder::default()
             .with_title("Clintegrator - Terminal File Opener & Dispatcher")
             .with_inner_size([920.0, 680.0])
-            .with_min_inner_size([650.0, 480.0]),
+            .with_min_inner_size([420.0, 340.0]),
         ..Default::default()
     };
 

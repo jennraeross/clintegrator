@@ -1,15 +1,41 @@
 use crate::os_integration::{OsIntegration, OsIntegrationStatus};
 use crate::ui::AppState;
-use eframe::egui::{self, Color32, RichText, Ui};
+use eframe::egui::{self, Label, RichText, Ui};
 use std::path::PathBuf;
 
 pub struct OsViewState {
     pub message: Option<Result<String, String>>,
+    /// Cached OS integration status so repaints never hit the filesystem.
+    status: Option<OsIntegrationStatus>,
+    binary_path: Option<PathBuf>,
+    desktop_path: Option<PathBuf>,
 }
 
 impl Default for OsViewState {
     fn default() -> Self {
-        Self { message: None }
+        Self {
+            message: None,
+            status: None,
+            binary_path: None,
+            desktop_path: None,
+        }
+    }
+}
+
+impl OsViewState {
+    /// Loads the integration status once, on first display.
+    fn ensure_loaded(&mut self) {
+        if self.status.is_none() {
+            self.status = Some(OsIntegration::status());
+            self.binary_path = Some(OsIntegration::current_executable());
+            self.desktop_path = Some(OsIntegration::linux_desktop_file_path());
+        }
+    }
+
+    /// Re-reads the integration status (after install/remove).
+    fn refresh(&mut self) {
+        self.status = None;
+        self.ensure_loaded();
     }
 }
 
@@ -46,52 +72,64 @@ pub fn render_os_view(app: &mut AppState, ui: &mut Ui) {
 
 #[cfg(target_os = "linux")]
 fn render_linux_section(app: &mut AppState, ui: &mut Ui) {
-    let status = OsIntegration::status();
-    let desktop_path = OsIntegration::linux_desktop_file_path();
+    app.os_state.ensure_loaded();
+    let c = app.colors;
+
+    let status = app.os_state.status.clone().unwrap_or(OsIntegrationStatus::NotInstalled);
+    let desktop_path = app.os_state.desktop_path.clone().unwrap_or_default();
+    let binary_path = app.os_state.binary_path.clone().unwrap_or_default();
+    let status_line = status.clone();
 
     egui::Frame::group(ui.style()).show(ui, |ui| {
-        ui.horizontal(|ui| {
+        ui.horizontal_wrapped(|ui| {
             ui.label(RichText::new("Linux Desktop Integration Status:").strong());
-            match &status {
+            match &status_line {
                 OsIntegrationStatus::Installed(path) => {
                     ui.label(
                         RichText::new("✓ Active & Installed")
-                            .color(Color32::from_rgb(100, 220, 100))
+                            .color(c.success)
                             .strong(),
                     );
-                    ui.label(format!("({})", path.display()));
+                    ui.add(Label::new(RichText::new(format!("({})", path.display()))).truncate())
+                        .on_hover_text(path.display().to_string());
                 }
                 OsIntegrationStatus::NotInstalled => {
                     ui.label(
                         RichText::new("⚠ Not Installed")
-                            .color(Color32::from_rgb(240, 180, 50))
+                            .color(c.warning)
                             .strong(),
                     );
                 }
                 OsIntegrationStatus::Outdated(path) => {
                     ui.label(
                         RichText::new("🔄 Outdated Exe Path")
-                            .color(Color32::from_rgb(240, 180, 50))
+                            .color(c.warning)
                             .strong(),
                     );
-                    ui.label(format!("({})", path.display()));
+                    ui.add(Label::new(RichText::new(format!("({})", path.display()))).truncate())
+                        .on_hover_text(path.display().to_string());
                 }
             }
         });
 
         ui.add_space(4.0);
         ui.label("Current Binary Path:");
-        ui.label(RichText::new(OsIntegration::current_executable().to_string_lossy()).monospace());
+        let binary_display = binary_path.to_string_lossy().to_string();
+        ui.add(Label::new(RichText::new(&binary_display).monospace()).truncate())
+            .on_hover_text(&binary_display);
 
         ui.label("Desktop File Target:");
-        ui.label(RichText::new(desktop_path.to_string_lossy()).monospace());
+        let desktop_display = desktop_path.to_string_lossy().to_string();
+        ui.add(Label::new(RichText::new(&desktop_display).monospace()).truncate())
+            .on_hover_text(&desktop_display);
 
         ui.add_space(8.0);
-        ui.horizontal(|ui| {
+        ui.horizontal_wrapped(|ui| {
             if ui.button(RichText::new("📥 Register Clintegrator with System").strong()).clicked() {
                 match OsIntegration::install_linux_desktop() {
                     Ok(path) => {
                         app.os_state.message = Some(Ok(format!("Installed desktop integration to {}", path.display())));
+                        app.os_state.refresh();
                         app.set_status("OS Integration registered.");
                     }
                     Err(e) => {
@@ -104,6 +142,7 @@ fn render_linux_section(app: &mut AppState, ui: &mut Ui) {
                 match OsIntegration::uninstall_linux_desktop() {
                     Ok(_) => {
                         app.os_state.message = Some(Ok("Desktop entry removed successfully.".to_string()));
+                        app.os_state.refresh();
                         app.set_status("OS Integration removed.");
                     }
                     Err(e) => {
@@ -117,10 +156,10 @@ fn render_linux_section(app: &mut AppState, ui: &mut Ui) {
             ui.add_space(4.0);
             match msg {
                 Ok(text) => {
-                    ui.label(RichText::new(format!("✓ {}", text)).color(Color32::from_rgb(100, 220, 100)));
+                    ui.label(RichText::new(format!("✓ {}", text)).color(c.success));
                 }
                 Err(err) => {
-                    ui.label(RichText::new(format!("✗ {}", err)).color(Color32::from_rgb(250, 100, 100)));
+                    ui.label(RichText::new(format!("✗ {}", err)).color(c.error));
                 }
             }
         }
@@ -132,7 +171,15 @@ fn render_linux_section(app: &mut AppState, ui: &mut Ui) {
         .default_open(false)
         .show(ui, |ui| {
             ui.label("Clintegrator registers broad MIME types in its .desktop file:");
-            ui.label(RichText::new("MimeType=application/octet-stream;text/plain;*/*;all/all;all/allfiles;").monospace());
+            ui.add(
+                Label::new(
+                    RichText::new("MimeType=application/octet-stream;text/plain;*/*;all/all;all/allfiles;")
+                        .monospace()
+                        .small(),
+                )
+                .truncate(),
+            )
+            .on_hover_text("MimeType=application/octet-stream;text/plain;*/*;all/all;all/allfiles;");
             ui.label("This informs GUI file managers (such as Nautilus, Dolphin, Thunar, PCManFM) that Clintegrator can handle any file.");
             ui.label("To make it default, you can right-click any file in your file manager -> 'Open With Other Application' -> select Clintegrator -> 'Always use for this file type'.");
         });
@@ -143,7 +190,15 @@ fn render_windows_export_card(app: &mut AppState, ui: &mut Ui) {
         .default_open(false)
         .show(ui, |ui| {
             ui.label("On Windows, Clintegrator can register into Windows Explorer for all files via Registry:");
-            ui.label(RichText::new("HKEY_CURRENT_USER\\Software\\Classes\\*\\shell\\Open with Clintegrator").monospace());
+            ui.add(
+                Label::new(
+                    RichText::new("HKEY_CURRENT_USER\\Software\\Classes\\*\\shell\\Open with Clintegrator")
+                        .monospace()
+                        .small(),
+                )
+                .truncate(),
+            )
+            .on_hover_text("HKEY_CURRENT_USER\\Software\\Classes\\*\\shell\\Open with Clintegrator");
 
             if ui.button("Export 'clintegrator-register.reg'").clicked() {
                 let dest = PathBuf::from("clintegrator-register.reg");

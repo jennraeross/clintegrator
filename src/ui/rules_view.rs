@@ -1,6 +1,6 @@
 use crate::config::{parse_filetypes_input, Rule};
-use crate::ui::AppState;
-use eframe::egui::{self, Color32, RichText, Ui};
+use crate::ui::{form_label, AppState};
+use eframe::egui::{self, Label, RichText, Ui};
 use std::path::PathBuf;
 
 pub struct RulesViewState {
@@ -14,6 +14,7 @@ pub struct RuleEditor {
     pub name: String,
     pub filetypes_input: String,
     pub command: String,
+    pub run_in_terminal: bool,
     pub hold_open: bool,
     pub working_dir: String,
 }
@@ -35,25 +36,29 @@ impl Default for RulesViewState {
 }
 
 pub fn render_rules_view(app: &mut AppState, ui: &mut Ui) {
-    ui.horizontal(|ui| {
-        ui.heading("Filetype Rules");
-        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            if ui.button(RichText::new("+ Add New Pair").strong().color(Color32::from_rgb(100, 220, 100))).clicked() {
-                app.rules_state.editing_rule = Some(RuleEditor {
-                    original_id: None,
-                    name: String::new(),
-                    filetypes_input: String::new(),
-                    command: "nvim \"{file}\"".to_string(),
-                    hold_open: app.config.default_hold_open,
-                    working_dir: "file_dir".to_string(),
-                });
-            }
+    let c = app.colors;
 
-            ui.add(
-                egui::TextEdit::singleline(&mut app.rules_state.search_query)
-                    .hint_text("🔍 Search filetypes or commands..."),
-            );
-        });
+    ui.horizontal_wrapped(|ui| {
+        ui.heading("Filetype Rules");
+
+        if ui.button(RichText::new("+ Add New Pair").strong().color(c.success)).clicked() {
+            app.rules_state.editing_rule = Some(RuleEditor {
+                original_id: None,
+                name: String::new(),
+                filetypes_input: String::new(),
+                command: "nvim \"{file}\"".to_string(),
+                run_in_terminal: true,
+                hold_open: app.config.default_hold_open,
+                working_dir: "file_dir".to_string(),
+            });
+        }
+
+        let search_width = ui.available_width().clamp(140.0, 260.0);
+        ui.add_sized(
+            [search_width, ui.spacing().interact_size.y],
+            egui::TextEdit::singleline(&mut app.rules_state.search_query)
+                .hint_text("🔍 Search filetypes or commands..."),
+        );
     });
 
     ui.separator();
@@ -66,13 +71,13 @@ pub fn render_rules_view(app: &mut AppState, ui: &mut Ui) {
             ui.add_space(4.0);
 
             ui.horizontal(|ui| {
-                ui.label("Rule Label (Optional):");
-                ui.text_edit_singleline(&mut editor.name);
+                form_label(ui, "Rule Label (Optional):");
+                ui.add(egui::TextEdit::singleline(&mut editor.name));
             });
 
             ui.add_space(4.0);
             ui.horizontal(|ui| {
-                ui.label("Filetype(s):");
+                form_label(ui, "Filetype(s):");
                 ui.add(
                     egui::TextEdit::singleline(&mut editor.filetypes_input)
                         .hint_text("e.g. md, txt, rs (comma or space separated)"),
@@ -88,8 +93,8 @@ pub fn render_rules_view(app: &mut AppState, ui: &mut Ui) {
                     for ft in &parsed {
                         ui.label(
                             RichText::new(format!(".{}", ft))
-                                .background_color(Color32::from_rgb(45, 65, 85))
-                                .color(Color32::from_rgb(180, 220, 255)),
+                                .background_color(c.chip_bg)
+                                .color(c.chip_fg),
                         );
                     }
                 }
@@ -97,7 +102,7 @@ pub fn render_rules_view(app: &mut AppState, ui: &mut Ui) {
 
             ui.add_space(4.0);
             ui.horizontal(|ui| {
-                ui.label("Terminal Command:");
+                form_label(ui, "Terminal Command:");
                 ui.add(
                     egui::TextEdit::singleline(&mut editor.command)
                         .hint_text("e.g. nvim \"{file}\" or bat \"{file}\""),
@@ -131,11 +136,23 @@ pub fn render_rules_view(app: &mut AppState, ui: &mut Ui) {
 
             ui.add_space(4.0);
             ui.horizontal(|ui| {
-                ui.checkbox(&mut editor.hold_open, "Keep terminal open after command exits");
+                ui.checkbox(&mut editor.run_in_terminal, "Run in terminal emulator");
             });
 
+            if !editor.run_in_terminal {
+                ui.label(
+                    RichText::new("Direct Mode: runs command directly in background without opening a terminal window.")
+                        .small()
+                        .weak(),
+                );
+            } else {
+                ui.horizontal(|ui| {
+                    ui.checkbox(&mut editor.hold_open, "Keep terminal open after command exits");
+                });
+            }
+
             ui.horizontal(|ui| {
-                ui.label("Working Directory:");
+                form_label(ui, "Working Directory:");
                 egui::ComboBox::from_id_salt("editor_working_dir")
                     .selected_text(if editor.working_dir == "file_dir" {
                         "File's Directory"
@@ -149,7 +166,7 @@ pub fn render_rules_view(app: &mut AppState, ui: &mut Ui) {
             });
 
             ui.add_space(8.0);
-            ui.horizontal(|ui| {
+            ui.horizontal_wrapped(|ui| {
                 let can_save = !parsed.is_empty() && !editor.command.trim().is_empty();
                 if ui.add_enabled(can_save, egui::Button::new(RichText::new("Save Pair").strong())).clicked() {
                     let mut rule = if let Some(ref orig_id) = editor.original_id {
@@ -167,6 +184,7 @@ pub fn render_rules_view(app: &mut AppState, ui: &mut Ui) {
                     };
                     rule.filetypes = parsed;
                     rule.command = editor.command.clone();
+                    rule.run_in_terminal = editor.run_in_terminal;
                     rule.hold_open = editor.hold_open;
                     rule.working_dir = editor.working_dir.clone();
 
@@ -197,10 +215,14 @@ pub fn render_rules_view(app: &mut AppState, ui: &mut Ui) {
         egui::Frame::group(ui.style()).show(ui, |ui| {
             ui.heading(format!("Test Rule: {}", tester.rule.name));
             ui.label(format!("Handles: {}", tester.rule.filetypes_display()));
-            ui.label(format!("Command: {}", tester.rule.command));
+            ui.add(
+                Label::new(RichText::new(format!("Command: {}", tester.rule.command)).monospace())
+                    .truncate(),
+            )
+            .on_hover_text(&tester.rule.command);
 
             ui.horizontal(|ui| {
-                ui.label("Sample File Path:");
+                form_label(ui, "Sample File Path:");
                 ui.text_edit_singleline(&mut tester.sample_path);
             });
 
@@ -209,26 +231,39 @@ pub fn render_rules_view(app: &mut AppState, ui: &mut Ui) {
 
             ui.horizontal(|ui| {
                 if matches {
-                    ui.label(RichText::new("✓ Matches rule filetypes!").color(Color32::from_rgb(100, 220, 100)));
+                    ui.label(RichText::new("✓ Matches rule filetypes!").color(c.success));
                 } else {
-                    ui.label(RichText::new("✗ Does not match rule filetypes").color(Color32::from_rgb(230, 100, 100)));
+                    ui.label(RichText::new("✗ Does not match rule filetypes").color(c.error));
                 }
             });
 
             let formatted = crate::terminal::format_command(&tester.rule.command, &test_path);
-            ui.label(RichText::new(format!("Resolved Command: {}", formatted)).monospace());
+            let mode_str = if tester.rule.run_in_terminal {
+                "Terminal Execution"
+            } else {
+                "Direct Background Execution (No Terminal)"
+            };
+            ui.label(RichText::new(format!("Mode: {}", mode_str)).small().weak());
+            ui.add(
+                Label::new(RichText::new(format!("Resolved Command: {}", formatted)).monospace())
+                    .truncate(),
+            )
+            .on_hover_text(&formatted);
 
-            ui.horizontal(|ui| {
-                if ui.button("Launch Terminal Test").clicked() {
-                    let res = crate::terminal::launch_in_terminal(
+            ui.horizontal_wrapped(|ui| {
+                let btn_text = if tester.rule.run_in_terminal {
+                    "Launch Terminal Test"
+                } else {
+                    "Launch Direct Command Test"
+                };
+                if ui.button(btn_text).clicked() {
+                    let res = crate::terminal::launch_rule(
+                        &tester.rule,
+                        &test_path,
                         &app.config.preferred_terminal,
                         &app.config.custom_terminal_template,
-                        &tester.rule.command,
-                        &test_path,
-                        tester.rule.hold_open,
-                        &tester.rule.working_dir,
                     );
-                    tester.test_result = Some(res.map(|_| "Launched terminal successfully".to_string()));
+                    tester.test_result = Some(res.map(|_| "Launched command successfully".to_string()));
                 }
 
                 if ui.button("Close Tester").clicked() {
@@ -242,127 +277,132 @@ pub fn render_rules_view(app: &mut AppState, ui: &mut Ui) {
     }
 
     // Rules List
-    egui::ScrollArea::vertical().show(ui, |ui| {
-        let query = app.rules_state.search_query.to_lowercase();
-        let total_rules = app.config.rules.len();
+    let query = app.rules_state.search_query.to_lowercase();
+    let total_rules = app.config.rules.len();
 
-        let mut to_delete = None;
-        let mut to_edit = None;
-        let mut to_test = None;
-        let mut to_move_up = None;
-        let mut to_move_down = None;
+    let mut to_delete = None;
+    let mut to_edit = None;
+    let mut to_test = None;
+    let mut to_move_up = None;
+    let mut to_move_down = None;
 
-        for (idx, rule) in app.config.rules.iter_mut().enumerate() {
-            let matches_query = query.is_empty()
-                || rule.name.to_lowercase().contains(&query)
-                || rule.command.to_lowercase().contains(&query)
-                || rule.filetypes.iter().any(|ft| ft.to_lowercase().contains(&query));
+    for (idx, rule) in app.config.rules.iter_mut().enumerate() {
+        let matches_query = query.is_empty()
+            || rule.name.to_lowercase().contains(&query)
+            || rule.command.to_lowercase().contains(&query)
+            || rule.filetypes.iter().any(|ft| ft.to_lowercase().contains(&query));
 
-            if !matches_query {
-                continue;
-            }
+        if !matches_query {
+            continue;
+        }
 
-            ui.group(|ui| {
-                ui.horizontal(|ui| {
-                    // Checkbox for enabled/disabled
-                    let orig_enabled = rule.enabled;
-                    ui.checkbox(&mut rule.enabled, "");
-                    if rule.enabled != orig_enabled {
-                        // Will trigger save
+        ui.group(|ui| {
+            // Row 1: name + actions (actions reserved first so they never get pushed off-screen)
+            ui.horizontal(|ui| {
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if ui.button("🗑").on_hover_text("Delete rule").clicked() {
+                        to_delete = Some(idx);
                     }
 
-                    // Left Side: Filetypes
-                    ui.vertical(|ui| {
-                        ui.label(RichText::new(&rule.name).strong());
-                        ui.horizontal_wrapped(|ui| {
-                            for ft in &rule.filetypes {
-                                ui.label(
-                                    RichText::new(format!(".{}", ft))
-                                        .background_color(Color32::from_rgb(30, 50, 70))
-                                        .color(Color32::from_rgb(150, 210, 255))
-                                        .monospace(),
-                                );
-                            }
-                        });
-                    });
+                    if ui.button("✏").on_hover_text("Edit rule").clicked() {
+                        to_edit = Some(rule.clone());
+                    }
 
-                    ui.label(RichText::new("➜").strong().weak());
+                    if ui.button("⚡").on_hover_text("Test with sample file").clicked() {
+                        to_test = Some(rule.clone());
+                    }
 
-                    // Right Side: Terminal Command
-                    ui.vertical(|ui| {
-                        ui.label(RichText::new(&rule.command).monospace());
-                        if rule.hold_open {
-                            ui.label(RichText::new("[Keep Open]").small().weak());
-                        }
-                    });
+                    if idx + 1 < total_rules && ui.button("⬇").on_hover_text("Move down").clicked() {
+                        to_move_down = Some(idx);
+                    }
 
-                    // Action buttons aligned right
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if ui.button("🗑").on_hover_text("Delete rule").clicked() {
-                            to_delete = Some(idx);
-                        }
+                    if idx > 0 && ui.button("⬆").on_hover_text("Move up").clicked() {
+                        to_move_up = Some(idx);
+                    }
 
-                        if ui.button("✏").on_hover_text("Edit rule").clicked() {
-                            to_edit = Some(rule.clone());
-                        }
-
-                        if ui.button("⚡").on_hover_text("Test with sample file").clicked() {
-                            to_test = Some(rule.clone());
-                        }
-
-                        if idx < total_rules.saturating_sub(1) {
-                            if ui.button("⬇").on_hover_text("Move down").clicked() {
-                                to_move_down = Some(idx);
-                            }
-                        }
-
-                        if idx > 0 {
-                            if ui.button("⬆").on_hover_text("Move up").clicked() {
-                                to_move_up = Some(idx);
-                            }
-                        }
+                    ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                        ui.checkbox(&mut rule.enabled, "");
+                        ui.add(Label::new(RichText::new(&rule.name).strong()).truncate())
+                            .on_hover_text(&rule.name);
                     });
                 });
             });
-            ui.add_space(4.0);
-        }
 
-        // Handle mutations outside loop
-        if let Some(idx) = to_delete {
-            app.config.rules.remove(idx);
-            let _ = app.config.save();
-            app.set_status("Rule deleted.");
-        }
-
-        if let Some(rule) = to_edit {
-            app.rules_state.editing_rule = Some(RuleEditor {
-                original_id: Some(rule.id),
-                name: rule.name,
-                filetypes_input: rule.filetypes.join(", "),
-                command: rule.command,
-                hold_open: rule.hold_open,
-                working_dir: rule.working_dir,
+            // Row 2: filetypes
+            ui.horizontal_wrapped(|ui| {
+                if rule.filetypes.is_empty() {
+                    ui.label(RichText::new("(no filetypes)").italics().weak());
+                }
+                for ft in &rule.filetypes {
+                    ui.label(
+                        RichText::new(format!(".{}", ft))
+                            .background_color(c.chip_bg)
+                            .color(c.chip_fg)
+                            .monospace(),
+                    );
+                }
             });
-        }
 
-        if let Some(rule) = to_test {
-            let sample_ext = rule.filetypes.first().cloned().unwrap_or_else(|| "txt".to_string());
-            app.rules_state.testing_rule = Some(RuleTester {
-                sample_path: format!("/tmp/test_file.{}", sample_ext),
-                rule,
-                test_result: None,
+            // Row 3: mode badge (right) + command (truncates in the remaining space)
+            ui.horizontal(|ui| {
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if !rule.run_in_terminal {
+                        ui.label(
+                            RichText::new("[No Terminal / Direct]")
+                                .small()
+                                .color(c.warning)
+                                .background_color(c.warning_bg),
+                        );
+                    } else if rule.hold_open {
+                        ui.label(RichText::new("[Keep Open]").small().weak());
+                    }
+
+                    ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                        ui.label(RichText::new("➜").strong().weak());
+                        ui.add(Label::new(RichText::new(&rule.command).monospace()).truncate())
+                            .on_hover_text(&rule.command);
+                    });
+                });
             });
-        }
+        });
+        ui.add_space(4.0);
+    }
 
-        if let Some(idx) = to_move_up {
-            app.config.rules.swap(idx, idx - 1);
-            let _ = app.config.save();
-        }
+    // Handle mutations outside loop
+    if let Some(idx) = to_delete {
+        app.config.rules.remove(idx);
+        let _ = app.config.save();
+        app.set_status("Rule deleted.");
+    }
 
-        if let Some(idx) = to_move_down {
-            app.config.rules.swap(idx, idx + 1);
-            let _ = app.config.save();
-        }
-    });
+    if let Some(rule) = to_edit {
+        app.rules_state.editing_rule = Some(RuleEditor {
+            original_id: Some(rule.id),
+            name: rule.name,
+            filetypes_input: rule.filetypes.join(", "),
+            command: rule.command,
+            run_in_terminal: rule.run_in_terminal,
+            hold_open: rule.hold_open,
+            working_dir: rule.working_dir,
+        });
+    }
+
+    if let Some(rule) = to_test {
+        let sample_ext = rule.filetypes.first().cloned().unwrap_or_else(|| "txt".to_string());
+        app.rules_state.testing_rule = Some(RuleTester {
+            sample_path: format!("/tmp/test_file.{}", sample_ext),
+            rule,
+            test_result: None,
+        });
+    }
+
+    if let Some(idx) = to_move_up {
+        app.config.rules.swap(idx, idx - 1);
+        let _ = app.config.save();
+    }
+
+    if let Some(idx) = to_move_down {
+        app.config.rules.swap(idx, idx + 1);
+        let _ = app.config.save();
+    }
 }
-

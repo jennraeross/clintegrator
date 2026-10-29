@@ -23,6 +23,9 @@ pub struct Rule {
     /// Enabled / disabled toggle
     #[serde(default = "default_true")]
     pub enabled: bool,
+    /// Whether to run command in terminal (true) or directly in background without a terminal (false)
+    #[serde(default = "default_true")]
+    pub run_in_terminal: bool,
 }
 
 fn default_working_dir() -> String {
@@ -44,6 +47,7 @@ impl Rule {
             hold_open: false,
             working_dir: default_working_dir(),
             enabled: true,
+            run_in_terminal: true,
         }
     }
 
@@ -273,6 +277,28 @@ mod tests {
         let matched = config.find_matching_rule(Path::new("test.md"));
         assert!(matched.is_some());
         assert_eq!(matched.unwrap().name, "Specific MD");
+    }
+
+    #[test]
+    fn test_rule_run_in_terminal_default() {
+        let json = r#"{
+            "id": "1",
+            "name": "Test",
+            "filetypes": ["txt"],
+            "command": "cat {file}"
+        }"#;
+        let rule: Rule = serde_json::from_str(json).unwrap();
+        assert!(rule.run_in_terminal);
+
+        let json_direct = r#"{
+            "id": "2",
+            "name": "Direct Test",
+            "filetypes": ["mp4"],
+            "command": "mpv {file}",
+            "run_in_terminal": false
+        }"#;
+        let direct_rule: Rule = serde_json::from_str(json_direct).unwrap();
+        assert!(!direct_rule.run_in_terminal);
     }
 }
 

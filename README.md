@@ -11,6 +11,7 @@ Clintegrator bridges graphical desktop environments (file managers, desktop sear
 - **Filetype-to-Command Pairs**:
   - Map file extensions (e.g. `rs`, `toml`, `md`, `py`, `csv`, `log`) or full filenames (e.g. `Dockerfile`, `Makefile`) to any terminal command.
   - Command placeholders support `{file}`, `%f`, or automatic quoting.
+  - **Terminal or Direct Execution**: Choose whether to run the command inside a terminal emulator or run directly in the background without opening a terminal window (ideal for GUI applications, media players like MPV, or silent automation scripts).
   - Per-rule options: "Keep terminal open after exit", working directory selection, and custom terminal emulator overrides.
 
 - **Background Dispatcher Mode**:
@@ -31,6 +32,26 @@ Clintegrator bridges graphical desktop environments (file managers, desktop sear
   - **Linux / FreeDesktop**: Installs `~/.local/share/applications/clintegrator.desktop` declaring `MimeType=application/octet-stream;text/plain;*/*;all/all;all/allfiles;`. Desktop environments (GNOME, KDE, XFCE, Sway) and file managers (Nautilus, Dolphin, Thunar, PCManFM) will offer Clintegrator in the "Open With" list and as a default handler for any file.
   - **Windows**: Exports a `.reg` file registering Clintegrator for all files (`*`) in Windows Explorer context menus and `SupportedTypes: *`.
   - **macOS**: Provides Info.plist declaring `CFBundleDocumentTypes` for `public.item`, `public.data`, and `public.content`.
+
+---
+
+## 🎨 Omarchy Integration
+
+On [Omarchy](https://omarchy.org/), Clintegrator automatically follows the active desktop theme — no configuration needed.
+
+- **Colors**: Reads the active palette from `~/.local/state/omarchy/current/theme/colors.toml` (XDG state) and maps it onto the whole UI, including success/warning/error accents, chips, selections, and hover states. Light themes (`catppuccin-latte`, `flexoki-light`, `white`, …) are detected via the palette's `mode` key.
+- **Font**: Uses the desktop's fontconfig `monospace` family (the same lookup the Omarchy shell uses, e.g. `fc-match monospace` → Go Mono) and matches the shell's `[font] base-size` from `shell.toml`. egui's bundled emoji fonts remain as fallbacks, so icons like ⚙ 🚀 🗑 still render.
+- **Live reload**: Theme and font files are checked once per second, so switching with `omarchy theme set <name>` or `omarchy font set <name>` updates an open window within a second — no restart required.
+
+Outside Omarchy (or when the theme file is unavailable), egui's default appearance is used. Two environment variables are available for overrides and testing:
+
+```bash
+# Use a specific theme directory (must contain colors.toml, optionally shell.toml)
+CLINTEGRATOR_THEME_DIR=/path/to/theme clintegrator --gui
+
+# Force a specific font file instead of the fontconfig monospace font
+CLINTEGRATOR_FONT_FILE=/usr/share/fonts/TTF/JetBrainsMonoNerdFont-Regular.ttf clintegrator --gui
+```
 
 ---
 
@@ -109,6 +130,18 @@ Configuration is stored in standard OS user config directories:
       "filetypes": ["csv", "tsv"],
       "command": "vd \"{file}\"",
       "terminal": null,
+      "run_in_terminal": true,
+      "hold_open": false,
+      "working_dir": "file_dir",
+      "enabled": true
+    },
+    {
+      "id": "f5b38d22-...",
+      "name": "MPV Media Player (Direct / No Terminal)",
+      "filetypes": ["mp4", "mkv", "webm", "mp3", "wav"],
+      "command": "mpv \"{file}\"",
+      "terminal": null,
+      "run_in_terminal": false,
       "hold_open": false,
       "working_dir": "file_dir",
       "enabled": true
@@ -128,4 +161,5 @@ Run automated unit and integration tests:
 ```bash
 cargo test
 ```
-All tests verify rule matching, case-insensitivity, wildcard matching, placeholder substitution, and OS registration generators.
+All tests verify rule matching, case-insensitivity, wildcard matching, placeholder substitution, and OS registration generators. Theme tests cover hex parsing, palette fallbacks, dark/light visuals, and derived semantic colors.
+

@@ -120,7 +120,13 @@ pub fn is_in_path(exe: &str) -> bool {
 /// Resolves the terminal executable to use
 pub fn resolve_terminal(preferred: &str) -> (String, String) {
     let available = detect_available_terminals();
+    resolve_terminal_from(&available, preferred)
+}
 
+/// Resolves the terminal executable from an already detected list.
+///
+/// Use this from the GUI so repaints don't rescan the filesystem every frame.
+pub fn resolve_terminal_from(available: &[TerminalInfo], preferred: &str) -> (String, String) {
     if preferred != "auto" && !preferred.is_empty() {
         if let Some(t) = available.iter().find(|t| t.id == preferred || t.executable == preferred) {
             if t.is_available {
@@ -130,7 +136,7 @@ pub fn resolve_terminal(preferred: &str) -> (String, String) {
     }
 
     // Auto-detect first available terminal
-    for t in &available {
+    for t in available {
         if t.is_available {
             return (t.id.clone(), t.executable.clone());
         }
@@ -222,6 +228,80 @@ pub fn launch_in_terminal(
     cmd.spawn().map_err(|e| format!("Failed to spawn terminal '{}': {}", term_exe, e))?;
 
     Ok(())
+}
+
+/// Launches the command directly in background without opening a terminal window
+pub fn launch_direct(
+    command_str: &str,
+    file_path: &Path,
+    working_dir: &str,
+) -> Result<(), String> {
+    let formatted_cmd = format_command(command_str, file_path);
+
+    let cwd: PathBuf = if working_dir == "file_dir" {
+        file_path.parent().map(|p| p.to_path_buf()).unwrap_or_else(|| PathBuf::from("."))
+    } else {
+        std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."))
+    };
+
+    #[cfg(not(target_os = "windows"))]
+    let mut cmd = {
+        let mut c = Command::new("sh");
+        c.arg("-c").arg(&formatted_cmd);
+        c
+    };
+
+    #[cfg(target_os = "windows")]
+    let mut cmd = {
+        let mut c = Command::new("cmd.exe");
+        c.arg("/c").arg(&formatted_cmd);
+        c
+    };
+
+    cmd.current_dir(cwd);
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        cmd.process_group(0);
+        cmd.stdin(Stdio::null());
+        cmd.stdout(Stdio::null());
+        cmd.stderr(Stdio::null());
+    }
+
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NEW_PROCESS_GROUP: u32 = 0x00000200;
+        const DETACHED_PROCESS: u32 = 0x00000008;
+        cmd.creation_flags(CREATE_NEW_PROCESS_GROUP | DETACHED_PROCESS);
+    }
+
+    cmd.spawn().map_err(|e| format!("Failed to spawn direct command '{}': {}", formatted_cmd, e))?;
+
+    Ok(())
+}
+
+/// Dispatches a rule either inside a terminal or directly based on rule.run_in_terminal
+pub fn launch_rule(
+    rule: &crate::config::Rule,
+    file_path: &Path,
+    preferred_terminal: &str,
+    custom_template: &str,
+) -> Result<(), String> {
+    if rule.run_in_terminal {
+        let term = rule.terminal.as_deref().unwrap_or(preferred_terminal);
+        launch_in_terminal(
+            term,
+            custom_template,
+            &rule.command,
+            file_path,
+            rule.hold_open,
+            &rule.working_dir,
+        )
+    } else {
+        launch_direct(&rule.command, file_path, &rule.working_dir)
+    }
 }
 
 /// Helper that builds the `Command` struct based on terminal emulator peculiarities
@@ -378,6 +458,31 @@ mod tests {
         let path = Path::new("/workspace/data.csv");
         let formatted = format_command("vd", path);
         assert_eq!(formatted, "vd \"/workspace/data.csv\"");
+    }
+
+    #[test]
+    fn test_launch_rule_resolution() {
+        let terminal_rule = crate::config::Rule::new("Terminal", vec!["txt".into()], "nvim {file}");
+        assert!(terminal_rule.run_in_terminal);
+
+        let mut direct_rule = crate::config::Rule::new("Direct", vec!["mp4".into()], "mpv {file}");
+        direct_rule.run_in_terminal = false;
+        assert!(!direct_rule.run_in_terminal);
+    }
+
+    #[test]
+    fn test_launch_direct_execution() {
+        let marker = Path::new("/tmp/clintegrator_direct_test_marker");
+        let _ = std::fs::remove_file(marker);
+
+        let dummy_file = Path::new("/tmp/dummy.test");
+        let res = launch_direct("touch /tmp/clintegrator_direct_test_marker", dummy_file, "current");
+        assert!(res.is_ok());
+
+        // Wait up to 500ms for detached command to write marker
+        std::thread::sleep(std::time::Duration::from_millis(150));
+        assert!(marker.exists());
+        let _ = std::fs::remove_file(marker);
     }
 }
 

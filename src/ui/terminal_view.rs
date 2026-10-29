@@ -1,6 +1,5 @@
-use crate::terminal::{detect_available_terminals, resolve_terminal};
-use crate::ui::AppState;
-use eframe::egui::{self, Color32, RichText, Ui};
+use crate::ui::{form_label, AppState};
+use eframe::egui::{self, Label, RichText, Ui};
 use std::path::PathBuf;
 
 pub struct TerminalViewState {
@@ -14,23 +13,27 @@ impl Default for TerminalViewState {
 }
 
 pub fn render_terminal_view(app: &mut AppState, ui: &mut Ui) {
+    let c = app.colors;
     ui.heading("Terminal Emulator Settings");
     ui.label(RichText::new("Configure the terminal emulator Clintegrator launches to run commands.").weak());
     ui.separator();
 
-    let terminals = detect_available_terminals();
-    let (resolved_id, resolved_exe) = resolve_terminal(&app.config.preferred_terminal);
+    let (resolved_id, resolved_exe) = app.resolved_terminal.clone();
 
     // Current Active Terminal Banner
     egui::Frame::group(ui.style()).show(ui, |ui| {
-        ui.horizontal(|ui| {
+        ui.horizontal_wrapped(|ui| {
             ui.label(RichText::new("Active Terminal:").strong());
-            ui.label(
-                RichText::new(&resolved_exe)
-                    .strong()
-                    .color(Color32::from_rgb(100, 220, 120)),
-            );
-            ui.label(format!("(ID: {})", resolved_id));
+            ui.add(
+                Label::new(
+                    RichText::new(&resolved_exe)
+                        .strong()
+                        .color(c.success),
+                )
+                .truncate(),
+            )
+            .on_hover_text(&resolved_exe);
+            ui.label(RichText::new(format!("(ID: {})", resolved_id)).weak());
         });
     });
 
@@ -44,9 +47,9 @@ pub fn render_terminal_view(app: &mut AppState, ui: &mut Ui) {
 
         ui.radio_value(&mut current_pref, "auto".to_string(), "Auto-detect (Recommended)");
 
-        for t in &terminals {
+        for t in &app.terminals {
             let label = if t.is_available {
-                RichText::new(format!("{} [Available]", t.name)).color(Color32::from_rgb(150, 220, 150))
+                RichText::new(format!("{} [Available]", t.name)).color(c.success)
             } else {
                 RichText::new(format!("{} [Not Found]", t.name)).weak()
             };
@@ -58,6 +61,7 @@ pub fn render_terminal_view(app: &mut AppState, ui: &mut Ui) {
 
         if current_pref != app.config.preferred_terminal {
             app.config.preferred_terminal = current_pref;
+            app.refresh_resolved_terminal();
             let _ = app.config.save();
             app.set_status("Terminal preference saved.");
         }
@@ -65,7 +69,7 @@ pub fn render_terminal_view(app: &mut AppState, ui: &mut Ui) {
         if app.config.preferred_terminal == "custom" {
             ui.add_space(4.0);
             ui.horizontal(|ui| {
-                ui.label("Custom Command Template:");
+                form_label(ui, "Custom Command Template:");
                 if ui
                     .add(
                         egui::TextEdit::singleline(&mut app.config.custom_terminal_template)
@@ -86,8 +90,13 @@ pub fn render_terminal_view(app: &mut AppState, ui: &mut Ui) {
 
     ui.add_space(8.0);
 
-    // Test Terminal Button
-    ui.horizontal(|ui| {
+    // Terminal actions
+    ui.horizontal_wrapped(|ui| {
+        if ui.button(RichText::new("🔄 Rescan Terminals").strong()).clicked() {
+            app.refresh_terminal_cache();
+            app.set_status("Terminal list refreshed.");
+        }
+
         if ui.button(RichText::new("🚀 Test Active Terminal").strong()).clicked() {
             let dummy_file = PathBuf::from("test_file.txt");
             let test_cmd = "echo '=== Clintegrator Terminal Test ==='; echo 'Your terminal is working properly!'; sleep 2";
@@ -114,13 +123,12 @@ pub fn render_terminal_view(app: &mut AppState, ui: &mut Ui) {
         if let Some(ref status) = app.terminal_state.test_status {
             match status {
                 Ok(msg) => {
-                    ui.label(RichText::new(format!("✓ {}", msg)).color(Color32::from_rgb(100, 220, 100)));
+                    ui.label(RichText::new(format!("✓ {}", msg)).color(c.success));
                 }
                 Err(err) => {
-                    ui.label(RichText::new(format!("✗ {}", err)).color(Color32::from_rgb(250, 100, 100)));
+                    ui.label(RichText::new(format!("✗ {}", err)).color(c.error));
                 }
             }
         }
     });
 }
-
