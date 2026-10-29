@@ -2,6 +2,15 @@
 name = "clintegrator"
 version = "0.1.0"
 edition = "2024"
+rust-version = "1.85"
+authors = ["Jennifer Roylance <jenn.rae.ross@gmail.com>"]
+description = "Cross-platform GUI and CLI that opens each file in the terminal command you've mapped to its filetype"
+readme = "README.md"
+repository = "https://github.com/jennraeross/clintegrator"
+homepage = "https://github.com/jennraeross/clintegrator"
+license = "MIT"
+keywords = ["terminal", "file-manager", "launcher", "gui", "egui"]
+categories = ["command-line-utilities", "gui"]
 
 [dependencies]
 dirs = "7.0.0"
@@ -9,3 +18,7 @@ eframe = "0.37.0"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
 uuid = { version = "1.29.0", features = ["serde", "v4"] }
+
+[profile.release]
+lto = "thin"
+strip = true

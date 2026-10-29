@@ -57,8 +57,14 @@ CLINTEGRATOR_FONT_FILE=/usr/share/fonts/TTF/JetBrainsMonoNerdFont-Regular.ttf cl
 
 ## 🛠 Installation & Build
 
+### Install from crates.io
+```bash
+cargo install clintegrator
+```
+This builds an optimized release binary and installs it to `~/.cargo/bin/clintegrator`.
+
 ### Prerequisites
-- Rust & Cargo (1.80+)
+- Rust & Cargo (1.85+, required by the Rust 2024 edition)
 - Standard X11/Wayland libraries on Linux (e.g., `libxkbcommon`, `wayland-client`, `mesa`)
 
 ### Build
